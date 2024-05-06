@@ -24,6 +24,11 @@
 #  include "config.h"
 #endif
 
+
+#ifdef HAVE_LIBSYSTEMD
+#  include <systemd/sd-login.h>
+#endif
+
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -32,6 +37,7 @@
 #include <polkit/polkit.h>
 
 #include "polkitpermission.h"
+
 
 /**
  * SECTION:polkitpermission
@@ -60,6 +66,8 @@ struct _PolkitPermission
 
   gchar *action_id;
 
+  gchar *session_state;
+
   /* non-NULL exactly when authorized with a temporary authorization */
   gchar *tmp_authz_id;
 };
@@ -74,7 +82,12 @@ enum
 static void process_result (PolkitPermission          *permission,
                             PolkitAuthorizationResult *result);
 
+static void get_session_state(char **state);
+
 static void on_authority_changed (PolkitAuthority *authority,
+                                  gpointer         user_data);
+
+static void on_sessions_changed (PolkitAuthority *authority,
                                   gpointer         user_data);
 
 static gboolean acquire        (GPermission          *permission,
@@ -142,8 +155,13 @@ polkit_permission_finalize (GObject *object)
       g_signal_handlers_disconnect_by_func (permission->authority,
                                             on_authority_changed,
                                             permission);
+      g_signal_handlers_disconnect_by_func (permission->authority,
+                                            on_sessions_changed,
+                                            permission);
       g_object_unref (permission->authority);
     }
+
+  get_session_state(&(permission->session_state));
 
   if (G_OBJECT_CLASS (polkit_permission_parent_class)->finalize != NULL)
     G_OBJECT_CLASS (polkit_permission_parent_class)->finalize (object);
@@ -420,6 +438,11 @@ polkit_permission_initable_init (GInitable     *initable,
                     G_CALLBACK (on_authority_changed),
                     permission);
 
+  g_signal_connect (permission->authority,
+                      "sessions-changed",
+                      G_CALLBACK (on_sessions_changed),
+                      permission);
+
   result = polkit_authority_check_authorization_sync (permission->authority,
                                                       permission->subject,
                                                       permission->action_id,
@@ -472,6 +495,20 @@ changed_check_cb (GObject       *source_object,
   g_object_unref (permission);
 }
 
+static void get_session_state(char **state)
+{
+  char *session = NULL;
+  if ( sd_pid_get_session(getpid(), &session) >= 0 )
+  {
+    sd_session_get_state(session, state);
+  }
+
+  if (session)
+  {
+    free(session);
+  }
+}
+
 static void
 on_authority_changed (PolkitAuthority *authority,
                       gpointer         user_data)
@@ -487,6 +524,45 @@ on_authority_changed (PolkitAuthority *authority,
                                         changed_check_cb,
                                         g_object_ref (permission));
 }
+
+
+static void on_sessions_changed (PolkitAuthority *authority,
+                      gpointer         user_data)
+{
+#ifdef HAVE_LIBSYSTEMD
+  char *new_session_state;
+  char *last_state;
+
+  PolkitPermission *permission = POLKIT_PERMISSION (user_data);
+
+  get_session_state(&new_session_state);
+  if ( g_strcmp0(new_session_state, permission->session_state) != 0 )
+  {
+    // swap strings
+    // free the old one
+    //g_atomic_pointer_exchange((void*)permission->session_state, new_session_state);
+
+    g_warning("we got into session comparison! last state: %s, new state: %s\n", permission->session_state, new_session_state);
+
+    last_state = permission->session_state;
+    permission->session_state = new_session_state;
+    free(last_state);
+
+    polkit_authority_check_authorization (permission->authority,
+                                      permission->subject,
+                                      permission->action_id,
+                                      NULL, /* PolkitDetails */
+                                      POLKIT_CHECK_AUTHORIZATION_FLAGS_NONE,
+                                      NULL /* cancellable */,
+                                      changed_check_cb,
+                                      g_object_ref (permission));
+  }
+
+#else
+  on_authority_changed(authority, user_data);  /* TODO: resolve the "too many session signals" issue for non-systemd systems later */
+#endif
+}
+
 
 static void
 process_result (PolkitPermission          *permission,
