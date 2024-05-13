@@ -577,7 +577,7 @@ on_authority_changed (PolkitBackendAuthority *authority,
 {
   guint16 msg_mask = 0;
 
-  msg_mask |= 1 << CHANGED_SIGNAL;
+  msg_mask = (guint16) CHANGED_SIGNAL;
   changed_dbus_call_handler(authority, user_data, msg_mask);
 }
 
@@ -588,7 +588,7 @@ on_sessions_changed (PolkitBackendAuthority *authority,
 {
   guint16 msg_mask = 0;
 
-  msg_mask |= 1 << SESSIONS_CHANGED_SIGNAL;
+  msg_mask = (guint16) SESSIONS_CHANGED_SIGNAL;
   changed_dbus_call_handler(authority, user_data, msg_mask);
 }
 
