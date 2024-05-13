@@ -82,7 +82,7 @@ enum
 static void process_result (PolkitPermission          *permission,
                             PolkitAuthorizationResult *result);
 
-static void get_session_state(char **state);
+static void get_session_state(char *state);
 
 static void on_authority_changed (PolkitAuthority *authority,
                                   gpointer         user_data);
@@ -139,6 +139,8 @@ polkit_permission_constructed (GObject *object)
 
   if (G_OBJECT_CLASS (polkit_permission_parent_class)->constructed != NULL)
     G_OBJECT_CLASS (polkit_permission_parent_class)->constructed (object);
+
+  get_session_state(permission->session_state);
 }
 
 static void
@@ -148,6 +150,7 @@ polkit_permission_finalize (GObject *object)
 
   g_free (permission->action_id);
   g_free (permission->tmp_authz_id);
+  g_free (permission->session_state);
   g_object_unref (permission->subject);
 
   if (permission->authority != NULL)
@@ -160,8 +163,6 @@ polkit_permission_finalize (GObject *object)
                                             permission);
       g_object_unref (permission->authority);
     }
-
-  get_session_state(&(permission->session_state));
 
   if (G_OBJECT_CLASS (polkit_permission_parent_class)->finalize != NULL)
     G_OBJECT_CLASS (polkit_permission_parent_class)->finalize (object);
@@ -495,18 +496,17 @@ changed_check_cb (GObject       *source_object,
   g_object_unref (permission);
 }
 
-static void get_session_state(char **state)
+static void get_session_state(char *state)
 {
+#ifdef HAVE_LIBSYSTEMD
   char *session = NULL;
   if ( sd_pid_get_session(getpid(), &session) >= 0 )
   {
-    sd_session_get_state(session, state);
+    sd_session_get_state(session, &state);
   }
 
-  if (session)
-  {
-    free(session);
-  }
+  g_free(session);
+#endif
 }
 
 static void
@@ -535,18 +535,14 @@ static void on_sessions_changed (PolkitAuthority *authority,
 
   PolkitPermission *permission = POLKIT_PERMISSION (user_data);
 
-  get_session_state(&new_session_state);
+  get_session_state(new_session_state);
   if ( g_strcmp0(new_session_state, permission->session_state) != 0 )
   {
-    // swap strings
-    // free the old one
     //g_atomic_pointer_exchange((void*)permission->session_state, new_session_state);
-
-    g_warning("we got into session comparison! last state: %s, new state: %s\n", permission->session_state, new_session_state);
 
     last_state = permission->session_state;
     permission->session_state = new_session_state;
-    free(last_state);
+    g_free(last_state);
 
     polkit_authority_check_authorization (permission->authority,
                                       permission->subject,

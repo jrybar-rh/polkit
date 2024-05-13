@@ -122,7 +122,7 @@ on_proxy_signal (GDBusProxy   *proxy,
     {
       if ((parameters != NULL) && g_variant_check_format_string(parameters, "(q)", FALSE ) )  // we expect only one uint16
       {
-        g_variant_get(parameters, "(q)", msg_mask);
+        g_variant_get(parameters, "(q)", &msg_mask);
         g_signal_emit (authority, signals[msg_mask], 0);
       }
       else
