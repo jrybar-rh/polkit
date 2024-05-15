@@ -24,7 +24,6 @@
 #  include "config.h"
 #endif
 
-
 #ifdef HAVE_LIBSYSTEMD
 #  include <systemd/sd-login.h>
 #endif
@@ -37,7 +36,6 @@
 #include <polkit/polkit.h>
 
 #include "polkitpermission.h"
-
 
 /**
  * SECTION:polkitpermission
@@ -82,7 +80,7 @@ enum
 static void process_result (PolkitPermission          *permission,
                             PolkitAuthorizationResult *result);
 
-static void get_session_state(char *state);
+static char *get_session_state();
 
 static void on_authority_changed (PolkitAuthority *authority,
                                   gpointer         user_data);
@@ -140,7 +138,7 @@ polkit_permission_constructed (GObject *object)
   if (G_OBJECT_CLASS (polkit_permission_parent_class)->constructed != NULL)
     G_OBJECT_CLASS (polkit_permission_parent_class)->constructed (object);
 
-  get_session_state(permission->session_state);
+  permission->session_state = get_session_state();
 }
 
 static void
@@ -496,16 +494,34 @@ changed_check_cb (GObject       *source_object,
   g_object_unref (permission);
 }
 
-static void get_session_state(char *state)
+static char *get_session_state()
 {
 #ifdef HAVE_LIBSYSTEMD
   char *session = NULL;
-  if ( sd_pid_get_session(getpid(), &session) >= 0 )
+  char *state = NULL;
+  uid_t uid;
+
+  if ( sd_pid_get_session(getpid(), &session) < 0 )
+  {
+    if ( sd_pid_get_owner_uid(getpid(), &uid) < 0)
+    {
+      goto out;
+    }
+    if (sd_uid_get_display(uid, &session) < 0)
+    {
+      goto out;
+    }
+  }
+
+  if (session != NULL)
   {
     sd_session_get_state(session, &state);
   }
-
+out:
   g_free(session);
+  return state;
+#else
+  return NULL;
 #endif
 }
 
@@ -530,16 +546,16 @@ static void on_sessions_changed (PolkitAuthority *authority,
                       gpointer         user_data)
 {
 #ifdef HAVE_LIBSYSTEMD
-  char *new_session_state;
-  char *last_state;
+  char *new_session_state = NULL;
+  char *last_state = NULL;
 
   PolkitPermission *permission = POLKIT_PERMISSION (user_data);
 
-  get_session_state(new_session_state);
-  if ( g_strcmp0(new_session_state, permission->session_state) != 0 )
-  {
-    //g_atomic_pointer_exchange((void*)permission->session_state, new_session_state);
+  new_session_state = get_session_state();
 
+  /* if we cannot tell the session state, we should do CheckAuthorization anyway */
+  if ((new_session_state == NULL) || ( g_strcmp0(new_session_state, permission->session_state) != 0 ))
+  {
     last_state = permission->session_state;
     permission->session_state = new_session_state;
     g_free(last_state);
@@ -553,7 +569,6 @@ static void on_sessions_changed (PolkitAuthority *authority,
                                       changed_check_cb,
                                       g_object_ref (permission));
   }
-
 #else
   on_authority_changed(authority, user_data);  /* TODO: resolve the "too many session signals" issue for non-systemd systems later */
 #endif

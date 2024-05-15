@@ -31,8 +31,8 @@
 #include "polkitsubject.h"
 #include "polkitidentity.h"
 #include "polkitdetails.h"
-#include "polkitprivate.h"
 
+#include "polkitprivate.h"
 
 /**
  * SECTION:polkitauthority
@@ -115,12 +115,10 @@ on_proxy_signal (GDBusProxy   *proxy,
 {
   PolkitAuthority *authority = POLKIT_AUTHORITY (user_data);
   guint16 msg_mask;
-  unsigned char i;
-
 
   if (g_strcmp0 (signal_name, "Changed") == 0)
     {
-      if ((parameters != NULL) && g_variant_check_format_string(parameters, "(q)", FALSE ) )  // we expect only one uint16
+      if ((parameters != NULL) && g_variant_check_format_string(parameters, "(q)", FALSE ) )
       {
         g_variant_get(parameters, "(q)", &msg_mask);
         g_signal_emit (authority, signals[msg_mask], 0);
@@ -131,7 +129,6 @@ on_proxy_signal (GDBusProxy   *proxy,
       }
     }
 }
-
 
 static void
 on_notify_g_name_owner (GObject    *object,
