@@ -1115,7 +1115,7 @@ js_polkit_spawn (duk_context *cx)
 
   g_main_context_pop_thread_default (context);
 
-  if (!polkit_backend_common_spawn_finish (data.res,
+  if (!polkit_backend_common_spawn_finish (data.task,
                                            &exit_status,
                                            &standard_output,
                                            &standard_error,
@@ -1157,7 +1157,7 @@ js_polkit_spawn (duk_context *cx)
   g_strfreev (argv);
   g_free (standard_output);
   g_free (standard_error);
-  g_clear_object (&data.res);
+  g_clear_object (&data.task);
   if (loop != NULL)
     g_main_loop_unref (loop);
   if (context != NULL)

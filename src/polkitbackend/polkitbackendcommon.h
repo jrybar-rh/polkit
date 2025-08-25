@@ -64,7 +64,7 @@ enum
 
 typedef struct
 {
-  GSimpleAsyncResult *simple; /* borrowed reference */
+  GTask *task; /* borrowed reference */
   GMainContext *main_context; /* may be NULL */
 
   GCancellable *cancellable;  /* may be NULL */
@@ -94,7 +94,7 @@ typedef struct
 typedef struct
 {
   GMainLoop *loop;
-  GAsyncResult *res;
+  GTask *task;
 } SpawnData;
 
 void polkit_backend_common_spawn (const gchar *const  *argv,
@@ -105,7 +105,7 @@ void polkit_backend_common_spawn (const gchar *const  *argv,
 void polkit_backend_common_spawn_cb (GObject       *source_object,
                                      GAsyncResult  *res,
                                      gpointer       user_data);
-gboolean polkit_backend_common_spawn_finish (GAsyncResult   *res,
+gboolean polkit_backend_common_spawn_finish (GTask          *task,
                                              gint           *out_exit_status,
                                              gchar         **out_standard_output,
                                              gchar         **out_standard_error,

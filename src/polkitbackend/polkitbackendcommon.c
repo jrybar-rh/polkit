@@ -138,9 +138,8 @@ utils_on_cancelled (GCancellable *cancellable,
 
   error = NULL;
   g_warn_if_fail (g_cancellable_set_error_if_cancelled (cancellable, &error));
-  g_simple_async_result_take_error (data->simple, error);
-  g_simple_async_result_complete_in_idle (data->simple);
-  g_object_unref (data->simple);
+  g_task_return_error (data->task, error);
+  g_object_unref (data->task);
 }
 
 static gboolean
@@ -154,8 +153,8 @@ utils_timeout_cb (gpointer user_data)
   data->timeout_source = NULL;
 
   /* we're done */
-  g_simple_async_result_complete_in_idle (data->simple);
-  g_object_unref (data->simple);
+  g_task_return_boolean (data->task, TRUE);
+  g_object_unref (data->task);
 
   return FALSE; /* remove source */
 }
@@ -188,8 +187,8 @@ utils_child_watch_cb (GPid     pid,
   data->child_watch_source = NULL;
 
   /* we're done */
-  g_simple_async_result_complete_in_idle (data->simple);
-  g_object_unref (data->simple);
+  g_task_return_boolean (data->task, TRUE);
+  g_object_unref (data->task);
 }
 
 static gboolean
@@ -232,10 +231,11 @@ polkit_backend_common_spawn (const gchar *const  *argv,
 
   data = g_slice_new0 (UtilsSpawnData);
   data->timeout_seconds = timeout_seconds;
-  data->simple = g_simple_async_result_new (NULL,
-                                            callback,
-                                            user_data,
-                                            (gpointer*)polkit_backend_common_spawn);
+  data->task = g_task_new (NULL,
+                           cancellable,
+                           callback,
+                           user_data);
+  g_task_set_source_tag (data->task, polkit_backend_common_spawn);
   data->main_context = g_main_context_get_thread_default ();
   if (data->main_context != NULL)
     g_main_context_ref (data->main_context);
@@ -247,8 +247,8 @@ polkit_backend_common_spawn (const gchar *const  *argv,
   data->child_stdout_fd = -1;
   data->child_stderr_fd = -1;
 
-  /* the life-cycle of UtilsSpawnData is tied to its GSimpleAsyncResult */
-  g_simple_async_result_set_op_res_gpointer (data->simple, data, (GDestroyNotify) utils_spawn_data_free);
+  /* the life-cycle of UtilsSpawnData is tied to its GTask */
+  g_task_set_task_data (data->task, data, (GDestroyNotify) utils_spawn_data_free);
 
   error = NULL;
   if (data->cancellable != NULL)
@@ -257,9 +257,8 @@ polkit_backend_common_spawn (const gchar *const  *argv,
       error = NULL;
       if (g_cancellable_set_error_if_cancelled (data->cancellable, &error))
         {
-          g_simple_async_result_take_error (data->simple, error);
-          g_simple_async_result_complete_in_idle (data->simple);
-          g_object_unref (data->simple);
+          g_task_return_error (data->task, error);
+          g_object_unref (data->task);
           goto out;
         }
 
@@ -283,9 +282,8 @@ polkit_backend_common_spawn (const gchar *const  *argv,
                                  &error))
     {
       g_prefix_error (&error, "Error spawning: ");
-      g_simple_async_result_take_error (data->simple, error);
-      g_simple_async_result_complete_in_idle (data->simple);
-      g_object_unref (data->simple);
+      g_task_return_error (data->task, error);
+      g_object_unref (data->task);
       goto out;
     }
 
@@ -358,25 +356,24 @@ polkit_backend_common_on_dir_monitor_changed (GFileMonitor     *monitor,
 }
 
 gboolean
-polkit_backend_common_spawn_finish (GAsyncResult   *res,
+polkit_backend_common_spawn_finish (GTask          *task,
                                     gint           *out_exit_status,
                                     gchar         **out_standard_output,
                                     gchar         **out_standard_error,
                                     GError        **error)
 {
-  GSimpleAsyncResult *simple = G_SIMPLE_ASYNC_RESULT (res);
   UtilsSpawnData *data;
   gboolean ret = FALSE;
 
-  g_return_val_if_fail (G_IS_ASYNC_RESULT (res), FALSE);
+  g_return_val_if_fail (G_IS_TASK (task), FALSE);
   g_return_val_if_fail (error == NULL || *error == NULL, FALSE);
 
-  g_warn_if_fail (g_simple_async_result_get_source_tag (simple) == polkit_backend_common_spawn);
+  g_return_val_if_fail (g_task_get_source_tag (task) == polkit_backend_common_spawn, FALSE);
 
-  if (g_simple_async_result_propagate_error (simple, error))
+  if (!g_task_propagate_boolean (task, error))
     goto out;
 
-  data = (UtilsSpawnData*)g_simple_async_result_get_op_res_gpointer (simple);
+  data = (UtilsSpawnData*)g_task_get_task_data (task);
 
   if (data->timed_out)
     {
@@ -527,7 +524,7 @@ polkit_backend_common_spawn_cb (GObject       *source_object,
                                 gpointer       user_data)
 {
   SpawnData *data = (SpawnData *)user_data;
-  data->res = (GAsyncResult*)g_object_ref (res);
+  data->task = (GTask*)g_object_ref (res);
   g_main_loop_quit (data->loop);
 }
 
